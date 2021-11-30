@@ -46,6 +46,10 @@ class Chef
             @rbenv_version = rbenv_version
             @rbenv_user = rbenv_user
           end
+
+          def rubygems_version
+              @rubygems_version ||= shell_out!("#{@gem_binary_location} --version").stdout.chomp
+          end
         end
 
         attr_reader :rbenv_user
@@ -74,12 +78,39 @@ class Chef
           true
         end
 
+        # pulls in patch from chef 14 to support rubygems 3+
+        # (https://github.com/chef/chef/commit/537982312e1034f33e4bc3967f36d8f49bbafb4c)
+        def install_via_gem_command(name, version)
+          if @new_resource.source =~ /\.gem$/i
+            name = @new_resource.source
+          else
+            src = @new_resource.source && "  --source=#{@new_resource.source} --source=http://rubygems.org"
+          end
+          if !version.nil? && !version.empty?
+            shell_out!("#{gem_binary_path} install #{name} -q #{rdoc_string} -v \"#{version}\"#{src}#{opts}", env: nil)
+          else
+            shell_out!("#{gem_binary_path} install \"#{name}\" -q #{rdoc_string} #{src}#{opts}", env: nil)
+          end
+        end
+
         private
 
         def normalize_version
           if @new_resource.rbenv_version == "global"
             @new_resource.rbenv_version(current_global_version)
           end
+        end
+
+        def rdoc_string
+          if needs_nodocument?
+            "--no-document"
+          else
+            "--no-rdoc --no-ri"
+          end
+        end
+
+        def needs_nodocument?
+          Gem::Requirement.new(">= 3.0.0.beta1").satisfied_by?(Gem::Version.new(gem_env.rubygems_version))
         end
 
         def rehash
